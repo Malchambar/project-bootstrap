@@ -1,50 +1,37 @@
 # Python Bootstrap
 
-`bootstrap.sh` is a Bash tool for setting up Python development environments on macOS.
+`bootstrap.sh` is a Bash tool for macOS/Homebrew that standardizes Python project setup with `venv` and Ruff.
 
-It supports two workflows:
-1. Creating a brand-new Python project (`new`)
-2. Configuring an already-cloned repository (`existing`)
+It supports three modes:
+- `new`: create a new Python project
+- `existing`: configure an already-cloned repo
+- `doctor`: check local environment health without changing files
 
 ## Requirements
 
 - macOS
-- Homebrew installed
+- Homebrew
 - Python installed via Homebrew (for example `python@3.12`)
-- Bash shell
-- Git installed
+- Bash
+- Git
 
 ## Installation
 
-From the repository directory (`~/dev/python-bootstrap`):
+Using a standard local clone path (for example `~/dev/python-bootstrap`):
 
 ```bash
+cd ~/dev/python-bootstrap
 chmod +x bootstrap.sh
-```
-
-## Make It Globally Accessible
-
-Create a symlink so you can run `bootstrap` from anywhere:
-
-```bash
 ln -s ~/dev/python-bootstrap/bootstrap.sh ~/bin/bootstrap
 ```
 
-If `~/bin` is not on your `PATH`, add it.
+If your clone path is different, replace `~/dev/python-bootstrap` accordingly.
 
-For `~/.zshrc`:
-
-```bash
-export PATH="$HOME/bin:$PATH"
-```
-
-For `~/.bashrc`:
+If needed, add `~/bin` to your `PATH`:
 
 ```bash
 export PATH="$HOME/bin:$PATH"
 ```
-
-Then reload your shell config (for example `source ~/.zshrc`).
 
 ## Usage
 
@@ -52,94 +39,104 @@ Then reload your shell config (for example `source ~/.zshrc`).
 bootstrap <mode> [options]
 ```
 
-Modes:
-- `new`: Create a new project directory and initialize it
-- `existing`: Configure the current repository in place
-
-Python version selection:
-- Pass explicitly with `--python 3.12`
-- If omitted, the script shows Homebrew-installed versions and prompts you to choose
+Key options:
+- `--python X.Y` choose Homebrew Python version
+- `--install-hook` install local pre-push hook (`new`/`existing`)
+- `--with-repo-guard` enable optional `repo-guard` integration (`new`/`existing`)
+- `--upgrade-ruff-config` safely align Ruff config (`new`/`existing`)
+- `--repo` require Git repo in `doctor` mode
 
 ## Example Commands
 
 ```bash
 bootstrap new --name myproj --python 3.12
-bootstrap new --name myproj --install-hook
-bootstrap existing
-bootstrap existing --python 3.12 --install-hook
+bootstrap existing --install-hook
+bootstrap existing --install-hook --with-repo-guard
+bootstrap doctor
+bootstrap existing --python 3.12 --upgrade-ruff-config
 ```
 
-## `new` Mode
+## `.python-version` Pinning
 
-Creates a new project directory under your current directory and initializes a starter Python project.
+`new` and `existing` write `.python-version` with the selected Python version (for example `3.12`).
 
-Typical outputs include:
-- `venv/` virtual environment
-- `pyproject.toml` with Ruff configuration
-- `.gitignore`
-- `README.md`
-- `main.py`
-- `src/<package_name>/__init__.py`
-- `tests/`
-- Git repository initialization
+In `existing` mode:
+- if `--python` is not provided, `.python-version` is used as the default
+- if the pinned version is not installed via Homebrew, the script warns and falls back to interactive selection
 
-Example structure:
+Commit `.python-version` to the repository so the preferred Python version follows the project across machines.
 
-```text
-myproj/
-├── .git/
-├── .gitignore
-├── README.md
-├── main.py
-├── pyproject.toml
-├── src/
-│   └── myproj/
-│       └── __init__.py
-├── tests/
-└── venv/
+## Ruff Config Management
+
+The script ensures this baseline Ruff setup exists in `pyproject.toml`:
+
+```toml
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 ```
 
-## `existing` Mode
+Behavior is conservative by default:
+- missing `pyproject.toml` is created
+- missing Ruff sections/keys are added
+- existing Ruff config is not blindly overwritten
 
-Configures the current already-cloned repository without creating a new top-level directory.
+With `--upgrade-ruff-config`, the script safely updates core Ruff defaults (including `target-version`) while preserving unrelated TOML content.
 
-What it does:
-- Creates `venv/` if missing
-- Upgrades `pip`
-- Installs/upgrades Ruff
-- Creates or updates `pyproject.toml` (adds Ruff config if missing)
-- Creates or updates `.gitignore` with common Python dev ignores
-- Optionally installs a local Git pre-push hook (`--install-hook`)
+## Optional Pre-Push Hook
 
-## Optional Pre-Push Hook (Ruff)
+With `--install-hook`, the script installs `.git/hooks/pre-push` that runs:
 
-When `--install-hook` is used, the script installs `.git/hooks/pre-push`.
+```bash
+venv/bin/ruff check .
+```
 
-Behavior:
-- Runs Ruff checks before push to `origin`
-- Executes `venv/bin/ruff check .` when available
-- If `venv/bin/ruff` is missing, prints a clear message and exits non-zero to block the push
+If `venv/bin/ruff` is missing, push fails with a clear message.
+
+### Optional `repo-guard` Integration
+
+Use `--with-repo-guard` in `new` or `existing` mode to enable optional `repo-guard` support:
+- the script checks whether `repo-guard` is available on `PATH`
+- if found, it prints next-step guidance (for example `repo-guard init`)
+- if not found, it warns but does not fail setup
+
+If `--install-hook` and `--with-repo-guard` are used together, the pre-push hook runs:
+- `venv/bin/ruff check .`
+- `repo-guard check` when available on `PATH`, otherwise `venv/bin/python -m repo_guard check` when available in the virtualenv
+
+## Sourced vs Executed Behavior
+
+At the end of `new` and `existing`:
+- if the script was **sourced**, it auto-activates `venv/bin/activate`
+- if it was **executed normally**, it prints:
+
+```bash
+source venv/bin/activate
+```
+
+## `doctor` Mode
+
+`doctor` performs read-only checks and reports `PASS` / `WARN` / `FAIL`, including:
+- Homebrew and Git availability
+- Git repo status (and repo root if applicable)
+- Homebrew Python interpreters
+- `venv/`, `venv/bin/python`, `venv/bin/ruff`
+- `.git/hooks/pre-push` status
+- `pyproject.toml` and Ruff config presence
+- `.python-version` presence/value
+
+`doctor` exits `0` when the environment looks healthy enough for development, and non-zero when important prerequisites are missing.
 
 ## Troubleshooting
 
-- `brew: command not found`
-  - Install Homebrew and restart your shell.
-
-- `No Homebrew Python versions found`
-  - Install one, for example:
-    ```bash
-    brew install python@3.12
-    ```
-
-- `bootstrap: command not found`
-  - Confirm symlink exists: `ls -l ~/bin/bootstrap`
-  - Ensure `~/bin` is on `PATH`.
-
-- Permission denied when running `bootstrap`
-  - Run `chmod +x ~/dev/python-bootstrap/bootstrap.sh`.
-
-- Existing pre-push hook not installed
-  - If `.git/hooks/pre-push` already exists and was not created by this tool, the script avoids overwriting it.
-
-- Python version option seems ignored in `existing`
-  - If `venv/` already exists, the script keeps it and does not recreate it with a different interpreter.
+- `brew: command not found` -> install Homebrew and restart shell.
+- No Homebrew Python found -> `brew install python@3.12`.
+- `bootstrap: command not found` -> verify `~/bin/bootstrap` symlink and `PATH`.
+- Pre-push hook conflict -> existing non-bootstrap hook is not overwritten.
