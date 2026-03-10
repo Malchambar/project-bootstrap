@@ -653,19 +653,30 @@ if __name__ == "__main__":
 MAIN
 }
 
+resolve_repo_guard_command_path() {
+  if [[ -x "$HOME/bin/repo-guard" ]]; then
+    printf '%s\n' "$HOME/bin/repo-guard"
+    return 0
+  fi
+
+  command -v repo-guard 2>/dev/null || return 1
+}
+
 configure_repo_guard_integration() {
+  local repo_guard_cmd
+
   if [[ "$WITH_REPO_GUARD" != "true" ]]; then
     return
   fi
 
-  if command -v repo-guard >/dev/null 2>&1; then
+  if repo_guard_cmd="$(resolve_repo_guard_command_path)" && "$repo_guard_cmd" --help >/dev/null 2>&1; then
     REPO_GUARD_STATUS="available on PATH"
-    log "repo-guard detected on PATH."
+    log "repo-guard detected: ${repo_guard_cmd}"
     log "Optional next step: run 'repo-guard init' in this repository."
   else
     REPO_GUARD_STATUS="requested but unavailable"
-    warn "--with-repo-guard was requested, but 'repo-guard' was not found on PATH."
-    warn "Install repo-guard, then run: repo-guard init"
+    warn "--with-repo-guard was requested, but a working 'repo-guard' command was not found on PATH."
+    warn "Install/fix repo-guard, then run: repo-guard init"
   fi
 }
 
@@ -681,9 +692,10 @@ install_pre_push_hook() {
   fi
 
   if [[ "$WITH_REPO_GUARD" == "true" ]]; then
-    if ! command -v repo-guard >/dev/null 2>&1; then
-      warn "Installing pre-push hook with repo-guard checks, but repo-guard is not currently on PATH."
-      warn "Pushes will fail until repo-guard is installed on PATH or in venv."
+    local repo_guard_cmd
+    if ! repo_guard_cmd="$(resolve_repo_guard_command_path)" || ! "$repo_guard_cmd" --help >/dev/null 2>&1; then
+      warn "Installing pre-push hook with repo-guard checks, but repo-guard is not currently runnable."
+      warn "Pushes will fail until repo-guard is installed/fixed on PATH."
     fi
 
     cat > "$hook_path" <<'HOOK'
@@ -704,15 +716,21 @@ else
   exit 1
 fi
 
-if command -v repo-guard >/dev/null 2>&1; then
+repo_guard_cmd=""
+if [[ -x "$HOME/bin/repo-guard" ]]; then
+  repo_guard_cmd="$HOME/bin/repo-guard"
+elif command -v repo-guard >/dev/null 2>&1; then
+  repo_guard_cmd="$(command -v repo-guard)"
+fi
+
+if [[ -n "$repo_guard_cmd" ]] && "$repo_guard_cmd" --help >/dev/null 2>&1; then
   echo "pre-push: running repo-guard checks..."
-  repo-guard check
-elif [[ -x "venv/bin/python" ]] && venv/bin/python -c 'import repo_guard' >/dev/null 2>&1; then
-  echo "pre-push: running repo-guard checks via python -m repo_guard..."
-  venv/bin/python -m repo_guard check
+  "$repo_guard_cmd" check
+elif [[ -n "$repo_guard_cmd" ]]; then
+  echo "pre-push: repo-guard command exists but is not runnable: ${repo_guard_cmd}"
 else
   echo "pre-push: repo-guard integration is enabled, but repo-guard is unavailable."
-  echo "pre-push: install repo-guard on PATH or in the venv to continue."
+  echo "pre-push: install repo-guard on PATH (for example ~/bin/repo-guard) to continue."
   exit 1
 fi
 HOOK

@@ -104,12 +104,13 @@ If `venv/bin/ruff` is missing, push fails with a clear message.
 
 Use `--with-repo-guard` in `new` or `existing` mode to enable optional `repo-guard` support:
 - the script checks whether `repo-guard` is available on `PATH`
+- it prefers `~/bin/repo-guard` when present
 - if found, it prints next-step guidance (for example `repo-guard init`)
 - if not found, it warns but does not fail setup
 
 If `--install-hook` and `--with-repo-guard` are used together, the pre-push hook runs:
 - `venv/bin/ruff check .`
-- `repo-guard check` when available on `PATH`, otherwise `venv/bin/python -m repo_guard check` when available in the virtualenv
+- `repo-guard check` (prefers `~/bin/repo-guard` when present)
 
 ## Sourced vs Executed Behavior
 
